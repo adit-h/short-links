@@ -1,0 +1,23 @@
+checks/build:
+  image: node:18
+  stage: build
+  tags:
+    - cprv
+    - docker
+  cache:
+    key: 'short-links-npm-cache'
+    paths:
+        - .npm-cache/
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+      variables:
+        ENV_TAG: dev
+        NPM_INSTALL_COMMAND: install
+  before_script:
+    # append env branch prefix
+    - ENV_VAR=ENV_$(echo $ENV_TAG | sed 's/[a-z]/\U&/g')
+    - echo $ENV_VAR
+  script:
+    - eval cat "\$$ENV_VAR" > .env
+    - npm $NPM_INSTALL_COMMAND --cache .npm-cache
+    - npm run build

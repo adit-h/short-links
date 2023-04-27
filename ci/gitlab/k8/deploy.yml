@@ -1,0 +1,64 @@
+deploy:
+  image: alpine
+  stage: deploy
+  tags:
+    - cprv
+    - docker
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - if: $CI_COMMIT_REF_NAME =~ /^staging/
+      variables:
+        ENV_TAG: staging-stg
+        K8_PATH: default
+        K8_CLUSTER_ID: $K8_CLUSTER_ID_DEFAULT
+        DIGITALOCEAN_ACCESS_TOKEN: $DO_TOKEN_DEFAULT
+    - if: $CI_COMMIT_REF_NAME =~ /^production/
+      variables:
+        ENV_TAG: production-prd
+        K8_PATH: prd
+        K8_CLUSTER_ID: $K8_CLUSTER_ID_PRD
+        DIGITALOCEAN_ACCESS_TOKEN: $DO_TOKEN_PRD
+  before_script:
+    # update
+    - apk update
+    - apk upgrade
+    # install utilities
+    - apk add curl wget sudo tar sed coreutils
+    # install kubectl
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    # install doctl
+    - wget https://github.com/digitalocean/doctl/releases/download/v1.72.0/doctl-1.72.0-linux-amd64.tar.gz
+    - tar xf doctl-1.72.0-linux-amd64.tar.gz
+    - sudo mv doctl /usr/local/bin
+    # append env branch prefix
+    # - IMAGE_TAG_SLUG=$(echo $ENV_TAG | tr '[A-Z]' '[a-z]')
+    # - IMAGE_TAG_SLUG=env-$(echo $ENV_TAG | sed 's/[a-z]/\L&/g')
+    - IMAGE_TAG_SLUG=$(echo $ENV_TAG | sed 's/[a-z]/\L&/g')
+    - echo $IMAGE_TAG_SLUG
+    - echo $K8_NAMESPACE
+    # generate k8 deployment config
+    - cat $K8_DEPLOY_CONFIG > /tmp/deployment.yaml
+    - sed -i 's/IMAGE_TAG_SLUG/'"$IMAGE_TAG_SLUG"'/g' /tmp/deployment.yaml
+    # load k8 secrets
+    - cat $K8_SECRET_REG_CRED > /tmp/registry-credentials.yaml
+  script:
+    # config digital ocean
+    - doctl kubernetes cluster kubeconfig save $K8_CLUSTER_ID
+    # create namespace if not exists
+    - kubectl create namespace $K8_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    # set namespace
+    - kubectl config set-context --current --namespace=$K8_NAMESPACE
+    # apply secrets
+    - kubectl apply -f /tmp/registry-credentials.yaml
+    # apply deployment
+    - kubectl apply -f /tmp/deployment.yaml
+    # apply cert issuer
+    - kubectl apply -f ./ci/k8/issuer.yml
+    # apply ingress
+    - kubectl apply -f ./ci/k8/${K8_PATH}/ingress.yml
+    # restart deployment
+    - kubectl rollout restart deployment/linksnx-$IMAGE_TAG_SLUG -n $K8_NAMESPACE
+  environment:
+    name: $CI_COMMIT_BRANCH

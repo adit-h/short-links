@@ -1,0 +1,11 @@
+stages:
+  - build
+  - test
+  - registry
+  - deploy
+
+include:
+  - "/ci/github/checks/build.yml"
+  - "/ci/github/k8/build.yml"
+  - "/ci/github/k8/registry.yml"
+  - "/ci/github/k8/deploy.yml"

@@ -1,0 +1,31 @@
+registry:
+  image: docker:19
+  stage: registry
+  tags:
+    - cprv
+    - docker
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - if: $CI_COMMIT_REF_NAME =~ /^staging/
+      variables:
+        ENV_TAG: stg
+    - if: $CI_COMMIT_REF_NAME =~ /^production/
+      variables:
+        ENV_TAG: prd
+  before_script:
+    # append env branch prefix
+    - ENV_VAR=ENV_$(echo $ENV_TAG | tr [a-z] [A-Z])
+    - echo $ENV_VAR
+  script:
+    - eval cat "\$$ENV_VAR" > .env
+    # generate image tag string from branch
+    - IMAGE_TAG=$(echo $CI_COMMIT_BRANCH | cut -d'/' -f2 | sed -e 's/\//-/g')
+    # build and tag
+    - docker build -t $CI_REGISTRY_IMAGE:$IMAGE_TAG-$ENV_TAG . --no-cache=true
+    # login to registry
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    # push to registry
+    - docker push $CI_REGISTRY_IMAGE
+  environment:
+    name: $CI_COMMIT_BRANCH
